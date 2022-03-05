@@ -80,7 +80,7 @@ async fn push(push_gateway_host: String, job: &str) -> Result<(), Error> {
     reqwest::Client::new()
         .post(format!("{}/metrics/job/{}", push_gateway_host, job))
         .body(format!(
-            "last_successful_execution_timestamp_seconds {}",
+            "last_successful_execution_timestamp_seconds {}\n",
             current_time
         ))
         .send()
