@@ -9,6 +9,7 @@ enum Error {
     Reqwest(reqwest::Error),
     Io(std::io::Error),
     Route53(aws_sdk_route53::Error),
+    Time(std::time::SystemTimeError),
     Env(std::env::VarError),
     Message(String),
 }
@@ -71,10 +72,28 @@ async fn update(
         .map_err(|e| Error::Route53(e.into()))
 }
 
+async fn push(push_gateway_host: String, job: &str) -> Result<(), Error> {
+    let current_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(Error::Time)?
+        .as_secs();
+    reqwest::Client::new()
+        .post(format!("{}/metrics/job/{}", push_gateway_host, job))
+        .body(format!(
+            "last_successful_execution_timestamp_seconds {}",
+            current_time
+        ))
+        .send()
+        .await
+        .map(|_| ())
+        .map_err(Error::Reqwest)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let host_name = std::env::var("HOST_NAME").map_err(Error::Env)?;
     let hosted_zone_id = std::env::var("HOSTED_ZONE_ID").map_err(Error::Env)?;
+    let push_gateway_host = std::env::var("PUSH_GATEWAY_HOST").map_err(Error::Env)?;
 
     let external_ip = current().await?;
     let host_ip = lookup(&host_name, 80)?;
@@ -88,5 +107,6 @@ async fn main() -> Result<(), Error> {
         let client = Client::new(&config);
         update(client, hosted_zone_id, host_name, external_ip).await?;
     }
+    push(push_gateway_host, "dyndns_route53").await?;
     Ok(())
 }
