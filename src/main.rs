@@ -102,7 +102,7 @@ async fn main() -> Result<(), Error> {
     println!("IP address of {} is {}", host_name, host_ip);
 
     if host_ip != external_ip {
-        println!("Updating DNS recrod of {} to {}", host_name, external_ip);
+        println!("Updating DNS record of {} to {}", host_name, external_ip);
         let config = aws_config::load_from_env().await;
         let client = Client::new(&config);
         update(client, hosted_zone_id, host_name, external_ip).await?;
