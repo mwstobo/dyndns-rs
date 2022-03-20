@@ -10,7 +10,6 @@ enum Error {
     Io(std::io::Error),
     Route53(aws_sdk_route53::Error),
     Time(std::time::SystemTimeError),
-    Env(std::env::VarError),
     Message(String),
 }
 
@@ -92,11 +91,22 @@ async fn push(push_gateway_host: String, job: &str) -> Result<(), Error> {
         .map_err(Error::Reqwest)
 }
 
+struct RequiredEnvVar {
+    value: String,
+}
+
+impl RequiredEnvVar {
+    fn new(env_var: &str) -> Self {
+        let value = std::env::var(env_var).expect(&format!("Missing value for env var {env_var}"));
+        Self { value }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let host_name = std::env::var("HOST_NAME").map_err(Error::Env)?;
-    let hosted_zone_id = std::env::var("HOSTED_ZONE_ID").map_err(Error::Env)?;
-    let push_gateway_host = std::env::var("PUSH_GATEWAY_HOST").map_err(Error::Env)?;
+    let host_name = RequiredEnvVar::new("HOST_NAME").value;
+    let hosted_zone_id = RequiredEnvVar::new("HOSTED_ZONE_ID").value;
+    let push_gateway_host = RequiredEnvVar::new("PUSH_GATEWAY_HOST").value;
 
     let external_ip = current().await?;
     let host_ip = lookup(&host_name, 80)?;
