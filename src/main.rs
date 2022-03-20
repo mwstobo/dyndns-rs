@@ -103,13 +103,14 @@ impl RequiredEnvVar {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() {
     let host_name = RequiredEnvVar::new("HOST_NAME").value;
     let hosted_zone_id = RequiredEnvVar::new("HOSTED_ZONE_ID").value;
     let push_gateway_host = RequiredEnvVar::new("PUSH_GATEWAY_HOST").value;
 
-    let external_ip = current().await?;
-    let host_ip = lookup(&host_name, 80)?;
+    let external_ip = current().await.expect("Unable to get current IP address");
+    let host_ip =
+        lookup(&host_name, 80).expect(&format!("Unable to get IP address of host {host_name}"));
 
     println!("Current external IP address is {}", external_ip);
     println!("IP address of {} is {}", host_name, host_ip);
@@ -118,8 +119,11 @@ async fn main() -> Result<(), Error> {
         println!("Updating DNS record of {} to {}", host_name, external_ip);
         let config = aws_config::load_from_env().await;
         let client = Client::new(&config);
-        update(client, hosted_zone_id, host_name, external_ip).await?;
+        update(client, hosted_zone_id, host_name, external_ip)
+            .await
+            .expect("Failed to update DNS records");
     }
-    push(push_gateway_host, "dyndns_route53").await?;
-    Ok(())
+    push(push_gateway_host, "dyndns_route53")
+        .await
+        .expect("Failed to push metrics to push gateway")
 }
