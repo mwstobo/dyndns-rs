@@ -1,8 +1,6 @@
-use aws_sdk_route53::{
-    model::{Change, ChangeAction, ChangeBatch, ResourceRecord, ResourceRecordSet, RrType},
-    Client,
-};
-use std::{env, io, net::ToSocketAddrs, time};
+use aws_sdk_route53::model;
+use std::net::ToSocketAddrs;
+use std::{env, io, time};
 
 async fn current() -> Result<String, reqwest::Error> {
     reqwest::Client::new()
@@ -34,15 +32,17 @@ async fn update(
         .change_resource_record_sets()
         .hosted_zone_id(hosted_zone_id)
         .change_batch(
-            ChangeBatch::builder()
+            model::ChangeBatch::builder()
                 .changes(
-                    Change::builder()
-                        .action(ChangeAction::Upsert)
+                    model::Change::builder()
+                        .action(model::ChangeAction::Upsert)
                         .resource_record_set(
-                            ResourceRecordSet::builder()
+                            model::ResourceRecordSet::builder()
                                 .name(host_name)
-                                .r#type(RrType::Cname)
-                                .resource_records(ResourceRecord::builder().value(current).build())
+                                .r#type(model::RrType::Cname)
+                                .resource_records(
+                                    model::ResourceRecord::builder().value(current).build(),
+                                )
                                 .build(),
                         )
                         .build(),
@@ -102,7 +102,7 @@ async fn main() {
     if host_ip != external_ip {
         println!("Updating DNS record of {} to {}", host_name, external_ip);
         let config = aws_config::load_from_env().await;
-        let client = Client::new(&config);
+        let client = aws_sdk_route53::Client::new(&config);
         update(client, hosted_zone_id, host_name, external_ip)
             .await
             .expect("Failed to update DNS records");
