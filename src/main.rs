@@ -2,42 +2,26 @@ use aws_sdk_route53::{
     model::{Change, ChangeAction, ChangeBatch, ResourceRecord, ResourceRecordSet, RrType},
     Client,
 };
-use std::net::ToSocketAddrs;
+use std::{env, io, net::ToSocketAddrs, time};
 
-#[derive(Debug)]
-enum Error {
-    Reqwest(reqwest::Error),
-    Io(std::io::Error),
-    Route53(aws_sdk_route53::Error),
-    Time(std::time::SystemTimeError),
-    Message(String),
-}
-
-async fn current() -> Result<String, Error> {
+async fn current() -> Result<String, reqwest::Error> {
     reqwest::Client::new()
         .get("https://ifconfig.co")
         .header("User-Agent", "curl/7.81.0")
         .send()
         .await
-        .and_then(|r| r.error_for_status())
-        .map_err(Error::Reqwest)?
+        .and_then(|r| r.error_for_status())?
         .text()
         .await
         .map(|t| String::from(t.trim()))
-        .map_err(Error::Reqwest)
 }
 
-fn lookup(host_name: &str, port: u16) -> Result<String, Error> {
-    (host_name, port)
-        .to_socket_addrs()
-        .map_err(Error::Io)
-        .and_then(|mut addrs| {
-            addrs.nth(0).ok_or(Error::Message(format!(
-                "Received 0 addresses for {}",
-                host_name
-            )))
-        })
-        .map(|addr| String::from(addr.ip().to_string().trim()))
+fn lookup(host_name: &str, port: u16) -> Result<Option<String>, io::Error> {
+    (host_name, port).to_socket_addrs().map(|mut addrs| {
+        addrs
+            .nth(0)
+            .map(|addr| String::from(addr.ip().to_string().trim()))
+    })
 }
 
 async fn update(
@@ -45,7 +29,7 @@ async fn update(
     hosted_zone_id: String,
     host_name: String,
     current: String,
-) -> Result<(), Error> {
+) -> Result<(), aws_sdk_route53::Error> {
     client
         .change_resource_record_sets()
         .hosted_zone_id(hosted_zone_id)
@@ -68,14 +52,14 @@ async fn update(
         .send()
         .await
         .map(|_| ())
-        .map_err(|e| Error::Route53(e.into()))
+        .map_err(|e| e.into())
 }
 
-async fn push(push_gateway_host: String, job: &str) -> Result<(), Error> {
-    let current_time = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(Error::Time)?
-        .as_secs();
+async fn push(
+    push_gateway_host: String,
+    job: &str,
+    current_time: u64,
+) -> Result<(), reqwest::Error> {
     reqwest::Client::new()
         .post(format!("{}/metrics/job/{}", push_gateway_host, job))
         .body(format!(
@@ -88,7 +72,6 @@ async fn push(push_gateway_host: String, job: &str) -> Result<(), Error> {
         .send()
         .await
         .map(|_| ())
-        .map_err(Error::Reqwest)
 }
 
 struct RequiredEnvVar {
@@ -97,7 +80,7 @@ struct RequiredEnvVar {
 
 impl RequiredEnvVar {
     fn new(env_var: &str) -> Self {
-        let value = std::env::var(env_var).expect(&format!("Missing value for env var {env_var}"));
+        let value = env::var(env_var).expect(&format!("Missing value for env var {env_var}"));
         Self { value }
     }
 }
@@ -109,8 +92,9 @@ async fn main() {
     let push_gateway_host = RequiredEnvVar::new("PUSH_GATEWAY_HOST").value;
 
     let external_ip = current().await.expect("Unable to get current IP address");
-    let host_ip =
-        lookup(&host_name, 80).expect(&format!("Unable to get IP address of host {host_name}"));
+    let host_ip = lookup(&host_name, 80)
+        .expect(&format!("Unable to get IP address of host {host_name}"))
+        .expect(&format!("Missing IP address for host {host_name}"));
 
     println!("Current external IP address is {}", external_ip);
     println!("IP address of {} is {}", host_name, host_ip);
@@ -123,7 +107,11 @@ async fn main() {
             .await
             .expect("Failed to update DNS records");
     }
-    push(push_gateway_host, "dyndns_route53")
+    let current_time = time::SystemTime::now()
+        .duration_since(time::UNIX_EPOCH)
+        .expect("Unable to get current system time")
+        .as_secs();
+    push(push_gateway_host, "dyndns_route53", current_time)
         .await
         .expect("Failed to push metrics to push gateway")
 }
