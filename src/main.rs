@@ -7,8 +7,8 @@ async fn current() -> Result<String, reqwest::Error> {
         .get("https://ifconfig.co")
         .header("User-Agent", "curl/7.81.0")
         .send()
-        .await
-        .and_then(|r| r.error_for_status())?
+        .await?
+        .error_for_status()?
         .text()
         .await
         .map(|t| String::from(t.trim()))
@@ -70,7 +70,8 @@ async fn push(
             current_time
         ))
         .send()
-        .await
+        .await?
+        .error_for_status()
         .map(|_| ())
 }
 
