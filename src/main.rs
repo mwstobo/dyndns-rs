@@ -39,7 +39,8 @@ async fn update(
                         .resource_record_set(
                             model::ResourceRecordSet::builder()
                                 .name(host_name)
-                                .r#type(model::RrType::Cname)
+                                .ttl(300)
+                                .r#type(model::RrType::A)
                                 .resource_records(
                                     model::ResourceRecord::builder().value(current).build(),
                                 )
