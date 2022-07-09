@@ -5,7 +5,7 @@ use std::{env, io, time};
 async fn current() -> Result<String, reqwest::Error> {
     reqwest::Client::new()
         .get("https://ifconfig.co")
-        .header("User-Agent", "curl/7.81.0")
+        .header("Accept", "text/plain")
         .send()
         .await?
         .error_for_status()?
