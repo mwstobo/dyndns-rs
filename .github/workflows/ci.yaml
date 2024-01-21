@@ -18,4 +18,6 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           push: true
-          tags: ghcr.io/mwstobo/dyndns-rs:latest
+          tags:
+            - ghcr.io/mwstobo/dyndns-rs:latest
+            - ghcr.io/mwstobo/dyndns-rs:${{ github.ref_name }}
