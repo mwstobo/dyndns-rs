@@ -65,6 +65,7 @@ impl RequiredEnvVar {
 async fn main() {
     let host_name = RequiredEnvVar::new("HOST_NAME").value;
     let hosted_zone_id = RequiredEnvVar::new("HOSTED_ZONE_ID").value;
+    let assume_role_arn = RequiredEnvVar::new("ASSUME_ROLE_ARN").value;
 
     let external_ip = current().await.expect("Unable to get current IP address");
     let host_ip = lookup(&host_name, 80)
@@ -77,8 +78,16 @@ async fn main() {
     if host_ip != external_ip {
         println!("Updating DNS record of {} to {}", host_name, external_ip);
         let config = aws_config::load_defaults(aws_config::BehaviorVersion::v2023_11_09()).await;
-        let client = aws_sdk_route53::Client::new(&config);
-        update(client, hosted_zone_id, host_name, external_ip)
+        let provider = aws_config::sts::AssumeRoleProvider::builder(assume_role_arn)
+            .configure(&config)
+            .build()
+            .await;
+        let local_config = aws_config::defaults(aws_config::BehaviorVersion::v2023_11_09())
+            .credentials_provider(provider)
+            .load()
+            .await;
+        let route53_client = aws_sdk_route53::Client::new(&local_config);
+        update(route53_client, hosted_zone_id, host_name, external_ip)
             .await
             .expect("Failed to update DNS records");
     }
