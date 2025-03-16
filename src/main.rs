@@ -145,12 +145,12 @@ async fn main() {
                 let hosted_zone_id = required_env_var("HOSTED_ZONE_ID");
                 let assume_role_arn = required_env_var("ASSUME_ROLE_ARN");
                 let config =
-                    aws_config::load_defaults(aws_config::BehaviorVersion::v2023_11_09()).await;
+                    aws_config::load_defaults(aws_config::BehaviorVersion::v2025_01_17()).await;
                 let provider = aws_config::sts::AssumeRoleProvider::builder(assume_role_arn)
                     .configure(&config)
                     .build()
                     .await;
-                let local_config = aws_config::defaults(aws_config::BehaviorVersion::v2023_11_09())
+                let local_config = aws_config::defaults(aws_config::BehaviorVersion::v2025_01_17())
                     .credentials_provider(provider)
                     .load()
                     .await;
