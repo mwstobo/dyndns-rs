@@ -1,17 +1,24 @@
 use aws_sdk_route53::types;
-use std::net::ToSocketAddrs;
+use cloudflare::endpoints::dns::dns;
+use cloudflare::framework::client::{self, async_api};
+use cloudflare::framework::{self, response};
+use std::net::{self, ToSocketAddrs};
 use std::str::FromStr;
 use std::{env, error, fmt, io, str};
 
 #[derive(Debug)]
 enum DNSUpdateError {
-    Route53Error(aws_sdk_route53::Error),
+    Route53(aws_sdk_route53::Error),
+    AddrParse(net::AddrParseError),
+    Cloudflare(response::ApiFailure),
 }
 
 impl fmt::Display for DNSUpdateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Route53Error(e) => write!(f, "route53 error: {e}"),
+            Self::Route53(e) => write!(f, "route53 error: {e}"),
+            Self::AddrParse(e) => write!(f, "addr parse error: {e}"),
+            Self::Cloudflare(e) => write!(f, "cloudflare error: {e}"),
         }
     }
 }
@@ -19,7 +26,9 @@ impl fmt::Display for DNSUpdateError {
 impl error::Error for DNSUpdateError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
-            Self::Route53Error(e) => Some(e),
+            Self::Route53(e) => Some(e),
+            Self::AddrParse(e) => Some(e),
+            Self::Cloudflare(e) => Some(e),
         }
     }
 }
@@ -44,7 +53,7 @@ impl Route53Updater {
 
 impl From<aws_sdk_route53::Error> for DNSUpdateError {
     fn from(e: aws_sdk_route53::Error) -> Self {
-        Self::Route53Error(e)
+        Self::Route53(e)
     }
 }
 
@@ -83,6 +92,52 @@ impl DNSUpdater for Route53Updater {
     }
 }
 
+struct CloudflareUpdater {
+    client: async_api::Client,
+    zone_identifier: String,
+    identifier: String,
+}
+
+impl CloudflareUpdater {
+    pub fn new(client: async_api::Client, zone_identifier: String, identifier: String) -> Self {
+        CloudflareUpdater {
+            client,
+            zone_identifier,
+            identifier,
+        }
+    }
+}
+
+impl From<net::AddrParseError> for DNSUpdateError {
+    fn from(e: net::AddrParseError) -> Self {
+        Self::AddrParse(e)
+    }
+}
+
+impl From<response::ApiFailure> for DNSUpdateError {
+    fn from(e: response::ApiFailure) -> Self {
+        Self::Cloudflare(e)
+    }
+}
+
+impl DNSUpdater for CloudflareUpdater {
+    async fn update(&self, host_name: String, record_value: String) -> Result<(), DNSUpdateError> {
+        let record_ip: net::Ipv4Addr = record_value.parse()?;
+        let endpoint = dns::UpdateDnsRecord {
+            zone_identifier: &self.zone_identifier,
+            identifier: &self.identifier,
+            params: dns::UpdateDnsRecordParams {
+                ttl: Some(300),
+                proxied: None,
+                name: &host_name,
+                content: dns::DnsContent::A { content: record_ip },
+            },
+        };
+        self.client.request(&endpoint).await?;
+        Ok(())
+    }
+}
+
 async fn current() -> Result<String, reqwest::Error> {
     reqwest::Client::new()
         .get("https://ifconfig.co")
@@ -104,6 +159,7 @@ fn lookup(host_name: &str, port: u16) -> Result<Option<String>, io::Error> {
 
 enum Provider {
     Route53,
+    Cloudflare,
 }
 
 impl FromStr for Provider {
@@ -112,6 +168,7 @@ impl FromStr for Provider {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "route53" => Ok(Self::Route53),
+            "cloudflare" => Ok(Self::Cloudflare),
             _ => Err("not found".to_string()),
         }
     }
@@ -140,7 +197,7 @@ async fn main() {
     if host_ip != external_ip {
         println!("Updating DNS record of {} to {}", host_name, external_ip);
 
-        let updater = match provider {
+        match provider {
             Provider::Route53 => {
                 let hosted_zone_id = required_env_var("HOSTED_ZONE_ID");
                 let assume_role_arn = required_env_var("ASSUME_ROLE_ARN");
@@ -157,12 +214,30 @@ async fn main() {
                 let client = aws_sdk_route53::Client::new(&local_config);
 
                 Route53Updater::new(client, hosted_zone_id)
+                    .update(host_name, external_ip)
+                    .await
+                    .expect("Failed to update DNS records")
             }
-        };
+            Provider::Cloudflare => {
+                let zone_identifier = required_env_var("CLOUDFLARE_ZONE_IDENTIFIER");
+                let identifier = required_env_var("CLOUDFLARE_IDENTIFIER");
+                let email = required_env_var("CLOUDFLARE_EMAIL");
+                let key = required_env_var("CLOUDFLARE_KEY");
 
-        updater
-            .update(host_name, external_ip)
-            .await
-            .expect("Failed to update DNS records");
+                let creds = cloudflare::framework::auth::Credentials::UserAuthKey { email, key };
+                let config = client::ClientConfig {
+                    http_timeout: std::time::Duration::new(60, 0),
+                    default_headers: http::HeaderMap::new(),
+                    resolve_ip: None,
+                };
+                let environment = framework::Environment::Production;
+                let client = async_api::Client::new(creds, config, environment)
+                    .expect("Couldn't make Cloudflare API client");
+                CloudflareUpdater::new(client, zone_identifier, identifier)
+                    .update(host_name, external_ip)
+                    .await
+                    .expect("Failed to update DNS records")
+            }
+        }
     }
 }
