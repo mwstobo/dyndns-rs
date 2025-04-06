@@ -221,10 +221,9 @@ async fn main() {
             Provider::Cloudflare => {
                 let zone_identifier = required_env_var("CLOUDFLARE_ZONE_IDENTIFIER");
                 let identifier = required_env_var("CLOUDFLARE_IDENTIFIER");
-                let email = required_env_var("CLOUDFLARE_EMAIL");
-                let key = required_env_var("CLOUDFLARE_KEY");
+                let token = required_env_var("CLOUDFLARE_TOKEN");
 
-                let creds = cloudflare::framework::auth::Credentials::UserAuthKey { email, key };
+                let creds = cloudflare::framework::auth::Credentials::UserAuthToken { token };
                 let config = client::ClientConfig {
                     http_timeout: std::time::Duration::new(60, 0),
                     default_headers: http::HeaderMap::new(),
