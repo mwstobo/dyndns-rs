@@ -127,7 +127,7 @@ impl DNSUpdater for CloudflareUpdater {
             zone_identifier: &self.zone_identifier,
             identifier: &self.identifier,
             params: dns::UpdateDnsRecordParams {
-                ttl: Some(300),
+                ttl: Some(60),
                 proxied: None,
                 name: &host_name,
                 content: dns::DnsContent::A { content: record_ip },
